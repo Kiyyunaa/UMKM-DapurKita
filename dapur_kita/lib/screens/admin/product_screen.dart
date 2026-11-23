@@ -259,12 +259,23 @@ class _AdminProductScreenState extends State<AdminProductScreen> {
                     text: product == null ? 'Tambah Menu Sekarang' : 'Simpan Perubahan',
                     isLoading: isSaving,
                     onPressed: () async {
-                      if (nameController.text.trim().isEmpty ||
+                      final nama = nameController.text.trim();
+                      final modal = double.tryParse(capitalController.text.trim());
+                      final jual = double.tryParse(sellingController.text.trim());
+                      final stok = int.tryParse(stockController.text.trim().isEmpty
+                          ? '0'
+                          : stockController.text.trim());
+
+                      if (nama.length < 2 ||
                           selectedCategory == null ||
-                          capitalController.text.trim().isEmpty ||
-                          sellingController.text.trim().isEmpty) {
+                          modal == null ||
+                          jual == null ||
+                          stok == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Harap lengkapi nama, kategori, modal, dan harga jual.')),
+                          const SnackBar(
+                            content: Text('Lengkapi nama (min. 2), kategori, modal, harga jual, dan stok berupa angka.'),
+                            backgroundColor: AppColors.error,
+                          ),
                         );
                         return;
                       }
@@ -303,6 +314,7 @@ class _AdminProductScreenState extends State<AdminProductScreen> {
                         if (ctx.mounted) Navigator.pop(ctx);
                         _loadData();
                       } catch (e) {
+                        if (!ctx.mounted) return;
                         setModalState(() => isSaving = false);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

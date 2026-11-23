@@ -17,6 +17,7 @@ class UserOrderScreen extends StatefulWidget {
 class _UserOrderScreenState extends State<UserOrderScreen> {
   List<OrderModel> _orders = [];
   bool _isLoading = true;
+  bool _isUploading = false;
   String? _errorMessage;
   final ImagePicker _picker = ImagePicker();
 
@@ -24,6 +25,17 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
   void initState() {
     super.initState();
     _fetchMyOrders();
+    ApiService.addRealtimeListener(_onRealtime);
+  }
+
+  @override
+  void dispose() {
+    ApiService.removeRealtimeListener(_onRealtime);
+    super.dispose();
+  }
+
+  void _onRealtime(String event) {
+    if (event == 'order_status_updated') _fetchMyOrders();
   }
 
   Future<void> _fetchMyOrders() async {
@@ -52,8 +64,91 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
     }
   }
 
+  /// Ambil detail pesanan supaya daftar item yang tersimpan di backend ikut tampil.
+  Future<void> _showOrderDetail(OrderModel awal) async {
+    var order = awal;
+    try {
+      final res = await ApiService.get('/api/orders/${awal.id}');
+      if (res['data'] != null) {
+        order = OrderModel.fromJson(res['data']);
+      }
+    } catch (_) {
+      // Kalau detail gagal dimuat, tetap tampilkan data dari daftar pesanan.
+    }
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Detail ${order.orderCode}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+              const Divider(),
+              Text('Status: ${order.statusDisplay}'),
+              Text(
+                'Penerima: ${order.displayRecipientName} (${order.displayRecipientPhone})',
+              ),
+              Text('Alamat: ${order.deliveryAddress}'),
+              const SizedBox(height: 12),
+              const Text('Item Pesanan:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              if (order.items.isEmpty)
+                const Text('Item tidak tersedia.', style: TextStyle(fontSize: 12, color: AppColors.textMuted))
+              else
+                ...order.items.map(
+                  (it) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${it.productName} x${it.quantity}', style: const TextStyle(fontSize: 13)),
+                        Text(
+                          Formatters.formatRupiah(it.subtotalAmount),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              const Divider(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Total', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    Formatters.formatRupiah(order.totalAmount),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.forestGreen),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Upload bukti pembayaran dengan Kamera atau Galeri (Sesuai Bagian 11 contoh.md)
   Future<void> _pickAndUploadProof(OrderModel order) async {
+    if (_isUploading) return;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -92,6 +187,9 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
   }
 
   Future<void> _executeUpload(OrderModel order, ImageSource source) async {
+    if (_isUploading) return;
+    setState(() => _isUploading = true);
+
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
@@ -99,6 +197,38 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
       );
 
       if (image == null) return;
+
+      // Validasi di aplikasi supaya file yang ditolak backend tidak perlu
+      // diunggah dulu (backend menerima JPG/JPEG/PNG/WEBP maksimal 5MB).
+      final String namaFile = image.name.toLowerCase();
+      final bool formatDiterima = namaFile.endsWith('.jpg') ||
+          namaFile.endsWith('.jpeg') ||
+          namaFile.endsWith('.png') ||
+          namaFile.endsWith('.webp');
+      if (!formatDiterima) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Format gambar harus JPG, JPEG, PNG, atau WEBP.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      final int ukuran = await image.length();
+      if (ukuran > 5 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ukuran gambar maksimal 5MB.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -123,7 +253,7 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
         ),
       );
 
-      _fetchMyOrders();
+      await _fetchMyOrders();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -132,6 +262,8 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
           backgroundColor: AppColors.error,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
     }
   }
 
@@ -232,14 +364,23 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
+    return RefreshIndicator(
+      onRefresh: _fetchMyOrders,
+      color: AppColors.forestGreen,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
       itemCount: _orders.length,
       separatorBuilder: (_, __) => const SizedBox(height: 14),
       itemBuilder: (context, index) {
         final order = _orders[index];
-        final bool canUploadProof = (order.paymentMethod == 'transfer' || order.paymentMethod == 'qris') &&
-            (order.proofUrl == null || order.paymentStatus != 'paid');
+        final bool butuhBukti = order.paymentMethod == 'transfer' ||
+            order.paymentMethod == 'qris' ||
+            order.paymentMethod == 'dompet_digital';
+        final bool canUploadProof = butuhBukti &&
+            (order.proofUrl == null || order.paymentStatus != 'paid') &&
+            order.status != 'cancelled' &&
+            order.status != 'completed' &&
+            !_isUploading;
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -328,6 +469,16 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
                 ],
               ),
 
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => _showOrderDetail(order),
+                  icon: const Icon(Icons.receipt_long_outlined, size: 16),
+                  label: const Text('Lihat Detail Item', style: TextStyle(fontSize: 12)),
+                ),
+              ),
+
               // Tombol Upload Bukti Pembayaran jika diperlukan
               if (canUploadProof) ...[
                 const SizedBox(height: 12),
@@ -351,7 +502,8 @@ class _UserOrderScreenState extends State<UserOrderScreen> {
             ],
           ),
         );
-      },
+        },
+      ),
     );
   }
 }

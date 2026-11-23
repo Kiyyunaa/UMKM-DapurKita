@@ -26,6 +26,17 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Izin ini wajib agar image_picker tidak crash saat pakai kamera/galeri di iOS -->
+	<key>NSCameraUsageDescription</key>
+	<string>DapurKita membutuhkan kamera untuk mengambil foto produk dan bukti pembayaran.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DapurKita membutuhkan akses galeri untuk memilih foto produk dan bukti pembayaran.</string>
+	<!-- Backend pengembangan diakses lewat IP lokal (http://192.168.x.x). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -30,22 +30,33 @@ class CartService extends ChangeNotifier {
     return total;
   }
 
-  /// Tambah produk ke keranjang
+  /// Tambah produk ke keranjang. Total jumlah untuk produk yang sama tidak
+  /// boleh melebihi stok, walaupun user menambah dari katalog/detail berkali-kali.
   void addToCart(ProductModel product, {int quantity = 1}) {
+    if (quantity <= 0 || product.stock <= 0) return;
+
     final index = _items.indexWhere((it) => it.product.id == product.id);
+    final jumlahSekarang = index >= 0 ? _items[index].quantity : 0;
+    var jumlahBaru = jumlahSekarang + quantity;
+    if (jumlahBaru > product.stock) jumlahBaru = product.stock;
+    if (jumlahBaru == jumlahSekarang) return;
+
     if (index >= 0) {
-      _items[index].quantity += quantity;
+      _items[index].quantity = jumlahBaru;
     } else {
-      _items.add(CartItemModel(product: product, quantity: quantity));
+      _items.add(CartItemModel(product: product, quantity: jumlahBaru));
     }
     notifyListeners();
   }
 
-  /// Perbarui kuantitas produk tertentu
+  /// Perbarui kuantitas produk tertentu, tetap dibatasi stok.
   void updateQuantity(int productId, int delta) {
     final index = _items.indexWhere((it) => it.product.id == productId);
     if (index >= 0) {
-      _items[index].quantity += delta;
+      final stok = _items[index].product.stock;
+      var jumlahBaru = _items[index].quantity + delta;
+      if (jumlahBaru > stok) jumlahBaru = stok;
+      _items[index].quantity = jumlahBaru;
       if (_items[index].quantity <= 0) {
         _items.removeAt(index);
       }

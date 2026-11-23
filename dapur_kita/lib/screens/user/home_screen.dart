@@ -14,7 +14,10 @@ import 'profile_screen.dart';
 
 /// Halaman Beranda Utama Pelanggan (Katalog Menu, Keranjang, Pesanan, Profil)
 class UserHomeScreen extends StatefulWidget {
-  const UserHomeScreen({super.key});
+  /// Dipakai notifikasi untuk langsung membuka tab Pesanan.
+  final int initialIndex;
+
+  const UserHomeScreen({super.key, this.initialIndex = 0});
 
   @override
   State<UserHomeScreen> createState() => _UserHomeScreenState();
@@ -36,11 +39,22 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialIndex;
+    // Supaya ikon "hapus" langsung muncul saat user mengetik, bukan setelah submit.
+    _searchController.addListener(() {
+      if (mounted) setState(() {});
+    });
+    ApiService.addRealtimeListener(_onRealtime);
     _fetchCatalog();
+  }
+
+  void _onRealtime(String event) {
+    if (event == 'new_product') _fetchCatalog();
   }
 
   @override
   void dispose() {
+    ApiService.removeRealtimeListener(_onRealtime);
     _searchController.dispose();
     super.dispose();
   }

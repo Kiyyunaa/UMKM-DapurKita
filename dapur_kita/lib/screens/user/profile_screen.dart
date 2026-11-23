@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/socket_service.dart';
 import '../../utils/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -38,11 +39,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleSave() async {
+    final nama = _nameController.text.trim();
+    final telepon = _phoneController.text.trim();
+
+    // Samakan dengan aturan backend supaya tidak mengirim data yang pasti 400.
+    if (nama.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nama minimal 2 karakter.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    if (telepon.isNotEmpty && telepon.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nomor telepon minimal 8 karakter, atau kosongkan.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       await AuthService().updateProfile(
-        name: _nameController.text,
-        phone: _phoneController.text,
+        name: nama,
+        phone: telepon,
         address: _addressController.text,
       );
       if (!mounted) return;
@@ -84,6 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirm == true) {
+      SocketService.disconnect();
       await AuthService().logout();
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -97,6 +122,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = AuthService().currentUser;
+    final fotoProfil = user?.imageUrl ?? '';
+    final adaFoto = fotoProfil.isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.warmCream,
@@ -135,10 +162,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   CircleAvatar(
                     radius: 32,
                     backgroundColor: AppColors.forestGreen,
-                    child: Text(
-                      (user?.name.isNotEmpty ?? false) ? user!.name[0].toUpperCase() : 'U',
-                      style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.white),
-                    ),
+                    backgroundImage: adaFoto ? NetworkImage(fotoProfil) : null,
+                    child: adaFoto
+                        ? null
+                        : Text(
+                            (user?.name.isNotEmpty ?? false) ? user!.name[0].toUpperCase() : 'U',
+                            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: AppColors.white),
+                          ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(

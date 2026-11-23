@@ -125,6 +125,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Nama lengkap wajib diisi';
                           }
+                          if (value.trim().length < 2) {
+                            return 'Nama minimal 2 karakter';
+                          }
                           return null;
                         },
                       ),
@@ -139,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Email wajib diisi';
                           }
-                          if (!value.contains('@')) {
+                          if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim())) {
                             return 'Format email tidak valid';
                           }
                           return null;

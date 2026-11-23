@@ -44,6 +44,8 @@ class OrderModel {
   final int userId;
   final String? userName;
   final String? userPhone;
+  final String? recipientName;
+  final String? recipientPhone;
   final double totalAmount;
   final double totalCapital;
   final String status; // pending, processing, ready_to_deliver, delivering, completed, cancelled
@@ -61,6 +63,8 @@ class OrderModel {
     required this.userId,
     this.userName,
     this.userPhone,
+    this.recipientName,
+    this.recipientPhone,
     required this.totalAmount,
     this.totalCapital = 0.0,
     required this.status,
@@ -72,6 +76,13 @@ class OrderModel {
     this.createdAt,
     this.items = const [],
   });
+
+  /// Data lama mungkin belum punya nama penerima, jadi jatuh ke data akun.
+  String get displayRecipientName =>
+      (recipientName ?? '').isNotEmpty ? recipientName! : (userName ?? '-');
+
+  String get displayRecipientPhone =>
+      (recipientPhone ?? '').isNotEmpty ? recipientPhone! : (userPhone ?? '-');
 
   /// Label status yang ramah dibaca pengguna
   String get statusDisplay {
@@ -102,6 +113,8 @@ class OrderModel {
         return 'Transfer Bank';
       case 'qris':
         return 'QRIS';
+      case 'dompet_digital':
+        return 'Dompet Digital';
       default:
         return paymentMethod;
     }
@@ -134,6 +147,8 @@ class OrderModel {
       userId: int.tryParse(json['user_id']?.toString() ?? '0') ?? 0,
       userName: json['user_name']?.toString(),
       userPhone: json['user_phone']?.toString(),
+      recipientName: json['recipient_name']?.toString(),
+      recipientPhone: json['recipient_phone']?.toString(),
       totalAmount: double.tryParse(json['total_amount']?.toString() ?? '0') ?? 0.0,
       totalCapital: double.tryParse(json['total_capital']?.toString() ?? '0') ?? 0.0,
       status: json['status']?.toString() ?? 'pending',

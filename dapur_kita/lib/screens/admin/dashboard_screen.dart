@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/socket_service.dart';
 import '../../utils/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../auth/login_screen.dart';
@@ -79,6 +80,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
 
     if (confirm == true) {
+      SocketService.disconnect();
       await AuthService().logout();
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -291,7 +293,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                             )
                           : Column(
                               children: [
-                                ..._chartData.take(7).map((c) {
+                                // Backend mengirim data tertua -> terbaru, jadi ambil 7 terakhir.
+                                ...(_chartData.length > 7
+                                        ? _chartData.sublist(_chartData.length - 7)
+                                        : _chartData)
+                                    .map((c) {
                                   final double rev = (c['revenue'] as num?)?.toDouble() ?? 0.0;
                                   final String period = c['period']?.toString() ?? '';
 

@@ -111,6 +111,27 @@ class _AdminExpenseScreenState extends State<AdminExpenseScreen> {
                   hint: 'Opsional...',
                   maxLines: 2,
                 ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Tanggal Pengeluaran', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text(expenseDate.split('T').first),
+                  trailing: const Icon(Icons.calendar_today_outlined, color: AppColors.forestGreen),
+                  onTap: () async {
+                    final sekarang = DateTime.now();
+                    final pilihan = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.tryParse(expenseDate) ?? sekarang,
+                      firstDate: DateTime(sekarang.year - 2),
+                      lastDate: DateTime(sekarang.year + 1),
+                    );
+                    if (pilihan != null) {
+                      setDialogState(() {
+                        expenseDate = pilihan.toIso8601String().split('T').first;
+                      });
+                    }
+                  },
+                ),
               ],
             ),
           ),
@@ -127,13 +148,33 @@ class _AdminExpenseScreenState extends State<AdminExpenseScreen> {
               onPressed: isSaving
                   ? null
                   : () async {
-                      if (titleController.text.trim().isEmpty || amountController.text.trim().isEmpty) return;
+                      final judul = titleController.text.trim();
+                      final nominal = double.tryParse(amountController.text.trim());
+                      if (judul.length < 2) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Judul pengeluaran minimal 2 karakter.'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
+                      if (nominal == null || nominal <= 0) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nominal harus berupa angka lebih dari 0.'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
+
                       setDialogState(() => isSaving = true);
                       try {
                         final payload = {
-                          'title': titleController.text.trim(),
+                          'title': judul,
                           'category': selectedCategory,
-                          'amount': double.parse(amountController.text.trim()),
+                          'amount': nominal,
                           'expense_date': expenseDate,
                           'description': descController.text.trim(),
                         };
@@ -146,6 +187,7 @@ class _AdminExpenseScreenState extends State<AdminExpenseScreen> {
                         if (ctx.mounted) Navigator.pop(ctx);
                         _fetchExpenses();
                       } catch (e) {
+                        if (!ctx.mounted) return;
                         setDialogState(() => isSaving = false);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

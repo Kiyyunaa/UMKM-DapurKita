@@ -30,33 +30,59 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
     _loadCurrentUrl();
   }
 
+  /// Terima hanya http/https dengan host. Mencegah token terkirim ke alamat
+  /// yang salah ketik atau ke server yang tidak diinginkan.
+  bool _isValidBaseUrl(String url) {
+    final uri = Uri.tryParse(url.trim());
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
   Future<void> _loadCurrentUrl() async {
     final current = await ApiService.getBaseUrl();
+    if (!mounted) return;
     setState(() {
       _urlController.text = current;
     });
   }
 
-  Future<void> _testConnection() async {
+  Future<bool> _testConnection() async {
+    final newUrl = _urlController.text.trim();
+    if (!_isValidBaseUrl(newUrl)) {
+      setState(() {
+        _isSuccess = false;
+        _testResult = 'Alamat harus diawali http:// atau https:// dan memiliki host.';
+      });
+      return false;
+    }
+
     setState(() {
       _isTesting = true;
       _testResult = null;
     });
 
+    final oldUrl = await ApiService.getBaseUrl();
     try {
-      await ApiService.setBaseUrl(_urlController.text);
+      await ApiService.setBaseUrl(newUrl);
       await ApiService.get('/api/categories');
+      if (!mounted) return false;
       setState(() {
         _isTesting = false;
         _isSuccess = true;
         _testResult = 'Koneksi Berhasil! Terhubung ke backend DapurKita.';
       });
-    } catch (e) {
+      return true;
+    } catch (_) {
+      // Uji gagal: kembalikan alamat lama supaya aplikasi tetap bisa dipakai.
+      await ApiService.setBaseUrl(oldUrl);
+      if (!mounted) return false;
       setState(() {
         _isTesting = false;
         _isSuccess = false;
-        _testResult = 'Gagal terhubung: $e';
+        _testResult = 'Gagal terhubung. Alamat server lama dikembalikan.';
       });
+      return false;
     }
   }
 
@@ -90,6 +116,14 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
               label: 'Alamat Base URL',
               hint: 'http://192.168.100.43:6000',
               prefixIcon: Icons.link,
+              onChanged: (_) {
+                if (_testResult != null && mounted) {
+                  setState(() {
+                    _testResult = null;
+                    _isSuccess = false;
+                  });
+                }
+              },
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -100,21 +134,33 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
                   label: const Text('Wi-Fi PC (HP)', style: TextStyle(fontSize: 11)),
                   backgroundColor: AppColors.sageGreen.withOpacity(0.5),
                   onPressed: () {
-                    _urlController.text = ApiService.defaultPhoneIp;
+                    setState(() {
+                      _urlController.text = ApiService.defaultPhoneIp;
+                      _testResult = null;
+                      _isSuccess = false;
+                    });
                   },
                 ),
                 ActionChip(
                   label: const Text('Emulator (10.0.2.2)', style: TextStyle(fontSize: 11)),
                   backgroundColor: AppColors.sageGreen.withOpacity(0.5),
                   onPressed: () {
-                    _urlController.text = ApiService.defaultEmulatorIp;
+                    setState(() {
+                      _urlController.text = ApiService.defaultEmulatorIp;
+                      _testResult = null;
+                      _isSuccess = false;
+                    });
                   },
                 ),
                 ActionChip(
                   label: const Text('Localhost', style: TextStyle(fontSize: 11)),
                   backgroundColor: AppColors.sageGreen.withOpacity(0.5),
                   onPressed: () {
-                    _urlController.text = ApiService.defaultLocalIp;
+                    setState(() {
+                      _urlController.text = ApiService.defaultLocalIp;
+                      _testResult = null;
+                      _isSuccess = false;
+                    });
                   },
                 ),
               ],
@@ -142,7 +188,9 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _isTesting ? null : _testConnection,
+          onPressed: _isTesting ? null : () async {
+                    await _testConnection();
+                  },
           child: _isTesting
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Uji Koneksi', style: TextStyle(color: AppColors.forestGreen)),
@@ -152,10 +200,13 @@ class _ServerConfigDialogState extends State<ServerConfigDialog> {
             backgroundColor: AppColors.forestGreen,
             foregroundColor: AppColors.white,
           ),
-          onPressed: () async {
-            await ApiService.setBaseUrl(_urlController.text);
-            if (context.mounted) Navigator.pop(context);
-          },
+          onPressed: _isTesting
+              ? null
+              : () async {
+                  // Simpan hanya setelah uji koneksi berhasil.
+                  final berhasil = await _testConnection();
+                  if (berhasil && context.mounted) Navigator.pop(context);
+                },
           child: const Text('Simpan'),
         ),
       ],

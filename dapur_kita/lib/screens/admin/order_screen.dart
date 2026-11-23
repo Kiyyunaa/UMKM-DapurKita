@@ -22,6 +22,19 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
   void initState() {
     super.initState();
     _fetchOrders();
+    ApiService.addRealtimeListener(_onRealtime);
+  }
+
+  @override
+  void dispose() {
+    ApiService.removeRealtimeListener(_onRealtime);
+    super.dispose();
+  }
+
+  void _onRealtime(String event) {
+    if (event == 'new_order' || event == 'order_status_updated') {
+      _fetchOrders();
+    }
   }
 
   Future<void> _fetchOrders() async {
@@ -72,7 +85,67 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
     }
   }
 
-  void _showOrderDetail(OrderModel order) {
+  /// Ikuti aturan backend: status tidak boleh mundur, pesanan selesai tidak
+  /// bisa dibatalkan, dan pesanan yang sudah dibatalkan tidak diubah lagi.
+  bool _statusAllowed(String current, String next) {
+    const urutan = {
+      'pending': 1,
+      'processing': 2,
+      'ready_to_deliver': 3,
+      'delivering': 4,
+      'completed': 5,
+    };
+
+    if (current == 'cancelled') return false;
+    if (next == 'cancelled') return (urutan[current] ?? 0) <= 3;
+    return (urutan[next] ?? 0) >= (urutan[current] ?? 0);
+  }
+
+  Future<void> _confirmPaymentStatus(
+    BuildContext ctx,
+    OrderModel order,
+    String status,
+  ) async {
+    final label = status == 'paid' ? 'Tandai Lunas' : 'Tolak Pembayaran';
+    final confirm = await showDialog<bool>(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('$label?'),
+        content: Text(
+          'Pesanan ${order.orderCode} akan ditandai ${status == 'paid' ? 'lunas' : 'gagal'}.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: status == 'paid' ? AppColors.success : AppColors.error,
+              foregroundColor: AppColors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Ya, Lanjutkan'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    await _updatePaymentStatus(order.id, status);
+    if (ctx.mounted) Navigator.pop(ctx);
+  }
+
+  Future<void> _showOrderDetail(OrderModel awal) async {
+    // Daftar pesanan tidak membawa item, jadi ambil detailnya dari backend.
+    var order = awal;
+    try {
+      final res = await ApiService.get('/api/orders/${awal.id}');
+      if (res['data'] != null) {
+        order = OrderModel.fromJson(res['data']);
+      }
+    } catch (_) {
+      // Tetap pakai data dari daftar kalau detail gagal dimuat.
+    }
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -99,11 +172,35 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                     ],
                   ),
                   const Divider(),
-                  Text('Pelanggan: ${order.userName ?? "-"} (${order.userPhone ?? "-"})'),
+                  Text(
+                    'Penerima: ${order.displayRecipientName} (${order.displayRecipientPhone})',
+                  ),
                   const SizedBox(height: 4),
                   Text('Alamat Antar: ${order.deliveryAddress}'),
                   if (order.notes != null && order.notes!.isNotEmpty)
                     Text('Catatan: ${order.notes}', style: const TextStyle(color: AppColors.textMuted)),
+                  const SizedBox(height: 12),
+
+                  const Text('Item Pesanan:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  if (order.items.isEmpty)
+                    const Text('Item tidak tersedia.', style: TextStyle(fontSize: 12, color: AppColors.textMuted))
+                  else
+                    ...order.items.map(
+                      (it) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('${it.productName} x${it.quantity}', style: const TextStyle(fontSize: 12)),
+                            Text(
+                              Formatters.formatRupiah(it.subtotalAmount),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 12),
 
                   const Text('Ubah Status Pesanan:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
@@ -112,12 +209,30 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      _statusButton(ctx, order.id, 'pending', 'Tertunda', order.status == 'pending'),
-                      _statusButton(ctx, order.id, 'processing', 'Diproses', order.status == 'processing'),
-                      _statusButton(ctx, order.id, 'ready_to_deliver', 'Siap', order.status == 'ready_to_deliver'),
-                      _statusButton(ctx, order.id, 'delivering', 'Dikirim', order.status == 'delivering'),
-                      _statusButton(ctx, order.id, 'completed', 'Selesai', order.status == 'completed'),
-                      _statusButton(ctx, order.id, 'cancelled', 'Batalkan', order.status == 'cancelled', isDanger: true),
+                      _statusButton(
+                        ctx, order.id, 'pending', 'Tertunda', order.status == 'pending',
+                        isAllowed: _statusAllowed(order.status, 'pending'),
+                      ),
+                      _statusButton(
+                        ctx, order.id, 'processing', 'Diproses', order.status == 'processing',
+                        isAllowed: _statusAllowed(order.status, 'processing'),
+                      ),
+                      _statusButton(
+                        ctx, order.id, 'ready_to_deliver', 'Siap', order.status == 'ready_to_deliver',
+                        isAllowed: _statusAllowed(order.status, 'ready_to_deliver'),
+                      ),
+                      _statusButton(
+                        ctx, order.id, 'delivering', 'Dikirim', order.status == 'delivering',
+                        isAllowed: _statusAllowed(order.status, 'delivering'),
+                      ),
+                      _statusButton(
+                        ctx, order.id, 'completed', 'Selesai', order.status == 'completed',
+                        isAllowed: _statusAllowed(order.status, 'completed'),
+                      ),
+                      _statusButton(
+                        ctx, order.id, 'cancelled', 'Batalkan', order.status == 'cancelled',
+                        isAllowed: _statusAllowed(order.status, 'cancelled'), isDanger: true,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -149,10 +264,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(foregroundColor: AppColors.success),
-                          onPressed: () {
-                            _updatePaymentStatus(order.id, 'paid');
-                            Navigator.pop(ctx);
-                          },
+                          onPressed: () => _confirmPaymentStatus(ctx, order, 'paid'),
                           child: const Text('Tandai Lunas (Paid)'),
                         ),
                       ),
@@ -160,10 +272,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),
-                          onPressed: () {
-                            _updatePaymentStatus(order.id, 'failed');
-                            Navigator.pop(ctx);
-                          },
+                          onPressed: () => _confirmPaymentStatus(ctx, order, 'failed'),
                           child: const Text('Tolak / Gagal'),
                         ),
                       ),
@@ -179,19 +288,34 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
     );
   }
 
-  Widget _statusButton(BuildContext ctx, int orderId, String statusKey, String label, bool isSelected, {bool isDanger = false}) {
+  Widget _statusButton(
+    BuildContext ctx,
+    int orderId,
+    String statusKey,
+    String label,
+    bool isSelected, {
+    bool isDanger = false,
+    bool isAllowed = true,
+  }) {
+    // Chip yang tidak diizinkan sengaja dinonaktifkan agar admin tidak
+    // mengirim status yang akan ditolak backend (400).
+    final bool aktif = isAllowed && !isSelected;
     return ChoiceChip(
       label: Text(label),
       selected: isSelected,
       selectedColor: isDanger ? AppColors.error : AppColors.forestGreen,
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : (isDanger ? AppColors.error : AppColors.charcoal),
+        color: !aktif && !isSelected
+            ? AppColors.textMuted
+            : (isSelected ? Colors.white : (isDanger ? AppColors.error : AppColors.charcoal)),
         fontSize: 11,
       ),
-      onSelected: (_) {
-        Navigator.pop(ctx);
-        _updateStatus(orderId, statusKey);
-      },
+      onSelected: aktif
+          ? (_) {
+              Navigator.pop(ctx);
+              _updateStatus(orderId, statusKey);
+            }
+          : null,
     );
   }
 
@@ -268,7 +392,9 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                             itemBuilder: (context, index) {
                               final order = filteredOrders[index];
                               return InkWell(
-                                onTap: () => _showOrderDetail(order),
+                                onTap: () async {
+                                  await _showOrderDetail(order);
+                                },
                                 child: Container(
                                   padding: const EdgeInsets.all(14),
                                   decoration: BoxDecoration(

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,6 +11,9 @@ class ApiService {
   static const String _keyBaseUrl = 'custom_base_url';
   static const String _keyToken = 'auth_token';
 
+  // Token disimpan di Keychain (iOS) / Keystore (Android), bukan SharedPreferences.
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+
   /// Dipanggil saat server mengembalikan 401 (token tidak valid / kedaluwarsa).
   /// Diset di main.dart agar proses logout + pindah ke halaman login dilakukan di satu tempat.
   static void Function()? onUnauthorized;
@@ -16,6 +21,24 @@ class ApiService {
 
   /// Reset penanda 401 setelah login/register berhasil.
   static void resetUnauthorized() => _unauthorizedHandled = false;
+
+  /// Daftar halaman yang ingin di-refresh saat ada event realtime.
+  static final List<void Function(String)> _realtimeListeners = [];
+
+  static void addRealtimeListener(void Function(String) listener) {
+    if (!_realtimeListeners.contains(listener)) _realtimeListeners.add(listener);
+  }
+
+  static void removeRealtimeListener(void Function(String) listener) {
+    _realtimeListeners.remove(listener);
+  }
+
+  static void notifyRealtime(String event) {
+    // Salin dulu supaya listener boleh menghapus diri sendiri saat dipanggil.
+    for (final listener in List<void Function(String)>.from(_realtimeListeners)) {
+      listener(event);
+    }
+  }
 
   // IP bawaan PC di jaringan Wi-Fi untuk pengujian via HP fisik
   static const String defaultPhoneIp = 'http://192.168.100.43:6000';
@@ -55,16 +78,30 @@ class ApiService {
   static Future<void> setToken(String? token) async {
     final prefs = await SharedPreferences.getInstance();
     if (token == null) {
+      await _secureStorage.delete(key: _keyToken);
+      // Hapus juga salinan lama bila ada.
       await prefs.remove(_keyToken);
-    } else {
-      await prefs.setString(_keyToken, token);
+      return;
     }
+
+    await _secureStorage.write(key: _keyToken, value: token);
+    // Token lama tidak dipakai lagi, jadi dibersihkan setelah migrasi.
+    await prefs.remove(_keyToken);
   }
 
   /// Ambil Token JWT
   static Future<String?> getToken() async {
+    final token = await _secureStorage.read(key: _keyToken);
+    if (token != null && token.isNotEmpty) return token;
+
+    // Migrasi sekali untuk pengguna yang sudah login sebelum update ini.
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyToken);
+    final oldToken = prefs.getString(_keyToken);
+    if (oldToken != null && oldToken.isNotEmpty) {
+      await setToken(oldToken);
+      return oldToken;
+    }
+    return null;
   }
 
   /// Header standar dengan JWT Token jika tersedia
@@ -92,9 +129,13 @@ class ApiService {
   static dynamic _handleResponse(http.Response response, {String? endpoint}) {
     // Token kedaluwarsa: logout otomatis cukup sekali.
     // Endpoint login dikecualikan karena 401 di sini berarti password salah, bukan sesi habis.
+    // Logout juga memakai token. Kalau token sudah kedaluwarsa, jangan panggil
+    // callback 401 (nanti logout dipanggil berulang). Logout tetap membersihkan
+    // token di perangkat lewat AuthService.logout().
     if (response.statusCode == 401 &&
         endpoint != null &&
         !endpoint.contains('/api/auth/login') &&
+        !endpoint.contains('/api/auth/logout') &&
         !_unauthorizedHandled) {
       _unauthorizedHandled = true;
       onUnauthorized?.call();
@@ -112,6 +153,9 @@ class ApiService {
     }
 
     String errorMsg = 'Terjadi kesalahan (${response.statusCode})';
+    if (response.statusCode == 429) {
+      errorMsg = 'Terlalu banyak percobaan. Silakan tunggu beberapa saat.';
+    }
     if (body is Map && body['message'] != null) {
       errorMsg = body['message'].toString();
       if (body['errors'] != null && body['errors'] is List) {
@@ -244,8 +288,15 @@ class ApiService {
   static void _handleNetworkError(dynamic error) {
     if (error is SocketException || error.toString().contains('Failed host lookup') || error.toString().contains('Connection refused')) {
       throw Exception(
-        'Gagal terhubung ke backend DapurKita. Pastikan backend aktif di port 6000 dan HP terhubung ke Wi-Fi yang sama dengan PC.',
+        'Gagal terhubung ke backend DapurKita. Pastikan backend aktif dan HP terhubung ke Wi-Fi yang sama dengan PC.',
       );
+    }
+    // Timeout/ClientException tidak boleh tampil sebagai pesan teknis di layar.
+    if (error is TimeoutException) {
+      throw Exception('Koneksi ke backend terlalu lama. Silakan coba lagi.');
+    }
+    if (error.toString().contains('ClientException')) {
+      throw Exception('Gagal terhubung ke backend DapurKita. Periksa alamat server dan koneksi Anda.');
     }
   }
 }

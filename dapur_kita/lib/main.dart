@@ -4,6 +4,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/user/home_screen.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
+import 'services/socket_service.dart';
 import 'utils/app_colors.dart';
 
 /// Kunci navigator global dipakai saat token kedaluwarsa agar bisa langsung
@@ -15,6 +16,7 @@ void main() async {
 
   // Token expired / tidak valid -> hapus sesi dan kembali ke login.
   ApiService.onUnauthorized = () async {
+    SocketService.disconnect();
     await AuthService().logout();
     navigatorKey.currentState?.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -24,6 +26,7 @@ void main() async {
 
   // Inisialisasi membaca sesi autentikasi pengguna
   await AuthService().initialize();
+  await SocketService.connect();
 
   runApp(const DapurKitaApp());
 }

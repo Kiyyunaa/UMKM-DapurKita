@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import 'api_service.dart';
+import 'cart_service.dart';
 
 /// Layanan Autentikasi untuk Login, Register, Profile, dan Role Guard.
 class AuthService extends ChangeNotifier {
@@ -131,10 +132,13 @@ class AuthService extends ChangeNotifier {
     String? phone,
     String? address,
   }) async {
+    // Field kosong sengaja tidak dikirim. Backend memvalidasi nama minimal 2
+    // karakter dan telepon minimal 8 karakter, jadi mengirim string kosong
+    // akan membuat update profil gagal (400).
     final res = await ApiService.put('/api/auth/profile', {
-      if (name != null) 'name': name.trim(),
-      if (phone != null) 'phone': phone.trim(),
-      if (address != null) 'address': address.trim(),
+      if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+      if (address != null && address.trim().isNotEmpty) 'address': address.trim(),
     });
 
     if (res['data'] != null) {
@@ -149,10 +153,24 @@ class AuthService extends ChangeNotifier {
 
   /// 5. Keluar Akun (Logout)
   Future<void> logout() async {
-    _currentUser = null;
-    await ApiService.setToken(null);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyUserData);
-    notifyListeners();
+    // Pastikan penanda 401 bersih. Kalau tidak, setelah 401 sekali saja
+    // sesi berikutnya tidak pernah diarahkan ke halaman login lagi.
+    ApiService.resetUnauthorized();
+
+    try {
+      // Beritahi backend supaya token lama langsung tidak berlaku
+      await ApiService.post('/api/auth/logout', {});
+    } catch (_) {
+      // Walau server gagal, tetap logout di perangkat
+    } finally {
+      _currentUser = null;
+      await ApiService.setToken(null);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyUserData);
+      // Keranjang ikut dikosongkan supaya akun berikutnya tidak mewarisi
+      // pesanan/total milik akun yang baru logout.
+      CartService().clear();
+      notifyListeners();
+    }
   }
 }

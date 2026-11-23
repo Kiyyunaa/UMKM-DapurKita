@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/socket_service.dart';
 import '../../utils/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -7,6 +9,11 @@ import '../admin/dashboard_screen.dart';
 import '../user/home_screen.dart';
 import 'register_screen.dart';
 import 'server_config_dialog.dart';
+
+// Kredensial demo tidak ditulis di source. Isi lewat --dart-define bila dibutuhkan,
+// sehingga tidak ikut terkompilasi di APK/IPA release.
+const String _demoAdminEmail = String.fromEnvironment('ADMIN_DEMO_EMAIL');
+const String _demoAdminPassword = String.fromEnvironment('ADMIN_DEMO_PASSWORD');
 
 /// Halaman Masuk Akun (Login) untuk User dan Admin
 class LoginScreen extends StatefulWidget {
@@ -41,6 +48,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
 
+      await SocketService.connect();
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -169,7 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             if (value == null || value.trim().isEmpty) {
                               return 'Email wajib diisi';
                             }
-                            if (!value.contains('@')) {
+                            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim())) {
                               return 'Format email tidak valid';
                             }
                             return null;
@@ -241,20 +249,22 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Tombol Cepat Akun Demo (Memudahkan pengujian SMK & guru)
-                  Center(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.textMuted,
+                  // Tombol cepat hanya untuk pengujian (debug). Di rilis,
+                  // kredensial admin tidak boleh tersedia di aplikasi.
+                  if (kDebugMode && _demoAdminEmail.isNotEmpty && _demoAdminPassword.isNotEmpty)
+                    Center(
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.textMuted,
+                        ),
+                        icon: const Icon(Icons.flash_on, size: 16),
+                        label: const Text('Isi Akun Admin Otomatis', style: TextStyle(fontSize: 12)),
+                        onPressed: () {
+                          _emailController.text = _demoAdminEmail;
+                          _passwordController.text = _demoAdminPassword;
+                        },
                       ),
-                      icon: const Icon(Icons.flash_on, size: 16),
-                      label: const Text('Isi Akun Admin Otomatis', style: TextStyle(fontSize: 12)),
-                      onPressed: () {
-                        _emailController.text = 'admin@dapurkita.com';
-                        _passwordController.text = 'AdminDapurKita2026!';
-                      },
                     ),
-                  ),
                 ],
               ),
             ),

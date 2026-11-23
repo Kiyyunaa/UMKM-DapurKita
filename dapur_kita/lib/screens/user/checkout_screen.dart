@@ -17,6 +17,8 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _addressController = TextEditingController();
+  final _recipientNameController = TextEditingController();
+  final _recipientPhoneController = TextEditingController();
   final _notesController = TextEditingController();
   String _selectedPaymentMethod = 'cod'; // 'cod', 'transfer', 'qris'
   bool _isLoading = false;
@@ -25,14 +27,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void initState() {
     super.initState();
     final user = AuthService().currentUser;
-    if (user != null && user.address != null) {
-      _addressController.text = user.address!;
+    if (user != null) {
+      _addressController.text = user.address ?? '';
+      _recipientNameController.text = user.name;
+      _recipientPhoneController.text = user.phone ?? '';
     }
   }
 
   @override
   void dispose() {
     _addressController.dispose();
+    _recipientNameController.dispose();
+    _recipientPhoneController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -41,10 +47,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final cart = CartService();
     if (cart.items.isEmpty) return;
 
-    if (_addressController.text.trim().isEmpty) {
+    final alamat = _addressController.text.trim();
+    final namaPenerima = _recipientNameController.text.trim();
+    final teleponPenerima = _recipientPhoneController.text.trim();
+
+    if (namaPenerima.length < 2 || (teleponPenerima.isNotEmpty && teleponPenerima.length < 8)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Alamat pengiriman wajib diisi.'),
+          content: Text('Nama penerima minimal 2 karakter dan telepon minimal 8 karakter.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    if (alamat.isEmpty || alamat.length < 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Alamat pengiriman wajib diisi dan minimal 5 karakter.'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -65,7 +84,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final notes = _notesController.text.trim();
       final res = await ApiService.post('/api/orders', {
         'items': itemsPayload,
-        'delivery_address': _addressController.text.trim(),
+        'delivery_address': alamat,
+        'recipient_name': namaPenerima,
+        'recipient_phone': teleponPenerima,
         if (notes.isNotEmpty) 'notes': notes,
         'payment_method': _selectedPaymentMethod,
       });
@@ -217,6 +238,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   const Text(
                     'Informasi Pengiriman',
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.charcoal),
+                  ),
+                  const SizedBox(height: 12),
+                  CustomTextField(
+                    controller: _recipientNameController,
+                    label: 'Nama Penerima',
+                    hint: 'Nama orang yang menerima pesanan',
+                    prefixIcon: Icons.person_outline,
+                  ),
+                  const SizedBox(height: 12),
+                  CustomTextField(
+                    controller: _recipientPhoneController,
+                    label: 'Telepon Penerima',
+                    hint: '08xxxxxxxxxx',
+                    prefixIcon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone,
                   ),
                   const SizedBox(height: 12),
                   CustomTextField(

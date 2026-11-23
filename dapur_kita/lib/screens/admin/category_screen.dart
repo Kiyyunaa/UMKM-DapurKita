@@ -34,8 +34,8 @@ class _AdminCategoryScreenState extends State<AdminCategoryScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
       if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Gagal memuat kategori: $e'), backgroundColor: AppColors.error),
       );
@@ -86,23 +86,34 @@ class _AdminCategoryScreenState extends State<AdminCategoryScreen> {
               onPressed: isSaving
                   ? null
                   : () async {
-                      if (nameController.text.trim().isEmpty) return;
+                      final nama = nameController.text.trim();
+                      if (nama.length < 2) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Nama kategori minimal 2 karakter.'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
+
                       setDialogState(() => isSaving = true);
                       try {
                         if (category == null) {
                           await ApiService.post('/api/categories', {
-                            'name': nameController.text.trim(),
+                            'name': nama,
                             'description': descController.text.trim(),
                           });
                         } else {
                           await ApiService.put('/api/categories/${category.id}', {
-                            'name': nameController.text.trim(),
+                            'name': nama,
                             'description': descController.text.trim(),
                           });
                         }
                         if (ctx.mounted) Navigator.pop(ctx);
                         _fetchCategories();
                       } catch (e) {
+                        if (!ctx.mounted) return;
                         setDialogState(() => isSaving = false);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

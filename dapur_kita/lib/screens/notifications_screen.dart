@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/notification_model.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../utils/app_colors.dart';
 import '../utils/formatters.dart';
+import 'admin/dashboard_screen.dart';
+import 'user/home_screen.dart';
 
 /// Halaman Notifikasi untuk User & Admin
 class NotificationsScreen extends StatefulWidget {
@@ -15,11 +18,23 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   List<NotificationModel> _notifications = [];
   bool _isLoading = true;
+  bool _isMarkingRead = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    _fetchNotifications();
+    ApiService.addRealtimeListener(_onRealtime);
+  }
+
+  @override
+  void dispose() {
+    ApiService.removeRealtimeListener(_onRealtime);
+    super.dispose();
+  }
+
+  void _onRealtime(String event) {
     _fetchNotifications();
   }
 
@@ -48,11 +63,38 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _markRead(NotificationModel notif) async {
-    if (notif.isRead) return;
+    if (notif.isRead || _isMarkingRead) return;
+
+    setState(() => _isMarkingRead = true);
     try {
       await ApiService.patch('/api/notifications/${notif.id}/read', {});
-      _fetchNotifications();
-    } catch (_) {}
+      await _fetchNotifications();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menandai notifikasi: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isMarkingRead = false);
+    }
+  }
+
+  Future<void> _handleTap(NotificationModel notif) async {
+    await _markRead(notif);
+    if (notif.orderId == null || !mounted) return;
+
+    // Notifikasi bertaut pesanan langsung membuka halaman pesanan yang sesuai peran.
+    final Widget tujuan = AuthService().isAdmin
+        ? const AdminDashboardScreen()
+        : const UserHomeScreen(initialIndex: 2);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => tujuan),
+      (route) => false,
+    );
   }
 
   @override
@@ -101,7 +143,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   itemBuilder: (context, index) {
                     final n = _notifications[index];
                     return InkWell(
-                      onTap: () => _markRead(n),
+                      onTap: () async {
+                        await _handleTap(n);
+                      },
                       child: Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(

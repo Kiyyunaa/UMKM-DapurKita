@@ -5,6 +5,7 @@ class UserModel {
   final String email;
   final String? phone;
   final String? address;
+  final String? imageUrl;
   final String role; // 'user' atau 'admin'
   final String? createdAt;
 
@@ -14,6 +15,7 @@ class UserModel {
     required this.email,
     this.phone,
     this.address,
+    this.imageUrl,
     required this.role,
     this.createdAt,
   });
@@ -27,6 +29,7 @@ class UserModel {
       email: json['email']?.toString() ?? '',
       phone: json['phone']?.toString(),
       address: json['address']?.toString(),
+      imageUrl: json['image_url']?.toString(),
       role: json['role']?.toString() ?? 'user',
       createdAt: json['created_at']?.toString(),
     );
@@ -39,6 +42,7 @@ class UserModel {
       'email': email,
       'phone': phone,
       'address': address,
+      'image_url': imageUrl,
       'role': role,
       'created_at': createdAt,
     };
